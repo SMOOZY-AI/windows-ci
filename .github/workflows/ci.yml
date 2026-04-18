@@ -1,0 +1,48 @@
+name: CI (manual sanity check)
+
+# Manual-only. CI for push events lives on GitLab where the source is.
+# This workflow just lets you trigger a typecheck/test run on GitHub Actions
+# infra without triggering a full release — useful for "did my recent GitLab
+# push still build on Windows?" quick check.
+on:
+  workflow_dispatch:
+
+jobs:
+  sanity:
+    name: Typecheck + test (Linux)
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      GITLAB_TOKEN: ${{ secrets.GITLAB_TOKEN }}
+
+    steps:
+      - name: Clone source from GitLab
+        shell: bash
+        run: |
+          if [ -z "$GITLAB_TOKEN" ]; then
+            echo "::error::GITLAB_TOKEN secret is missing"
+            exit 1
+          fi
+          git clone --depth 1 \
+            "https://oauth2:${GITLAB_TOKEN}@gitlab.com/smoozy-app/smoozy-windows.git" \
+            source
+
+      - uses: pnpm/action-setup@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: pnpm
+          cache-dependency-path: source/pnpm-lock.yaml
+
+      - name: Install dependencies
+        working-directory: source
+        run: pnpm install --frozen-lockfile
+
+      - name: Typecheck
+        working-directory: source
+        run: pnpm typecheck
+
+      - name: Test
+        working-directory: source
+        run: pnpm test
