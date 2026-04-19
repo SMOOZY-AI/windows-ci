@@ -54,7 +54,14 @@ jobs:
         uses: Swatinem/rust-cache@v2
         with:
           workspaces: source/src-tauri
+          # Stable key independent of Cargo.lock hash. Without this, each
+          # release bumps the version in Cargo.lock → new hash → cache miss
+          # → all crates re-fetched + recompiled (~15 min). With shared-key,
+          # the cache survives version bumps and only invalidates on real
+          # dependency changes.
+          shared-key: smoozy-windows-rust
           cache-on-failure: true
+          cache-all-crates: true
 
       - uses: pnpm/action-setup@v4
         with:
