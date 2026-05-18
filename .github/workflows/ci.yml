@@ -24,7 +24,7 @@ jobs:
             exit 1
           fi
           git clone --depth 1 \
-            "https://oauth2:${GITLAB_TOKEN}@gitlab.com/smoozy-app/smoozy-windows.git" \
+            "https://oauth2:${GITLAB_TOKEN}@gitlab.com/smoozy-ai/windows.git" \
             source
 
       - uses: pnpm/action-setup@v4

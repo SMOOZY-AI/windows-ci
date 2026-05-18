@@ -40,7 +40,7 @@ jobs:
             exit 1
           fi
           git clone \
-            "https://oauth2:${GITLAB_TOKEN}@gitlab.com/smoozy-app/smoozy-windows.git" \
+            "https://oauth2:${GITLAB_TOKEN}@gitlab.com/smoozy-ai/windows.git" \
             source
           cd source
           git config user.name "github-actions[bot]"
