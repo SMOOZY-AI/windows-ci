@@ -13,6 +13,22 @@ on:
           - minor
         default: patch
         required: true
+      # Publishing the manifest is the single act that pushes a build at every
+      # installed client at once, and it cannot be taken back from anyone who
+      # applies it before a rollback. Defaulting it OFF makes that a deliberate
+      # choice instead of a side effect of cutting a release.
+      #
+      # It has to be a choice you can withhold: on 2026-08-06 a Job Object flag
+      # shipped in 3.131.2/3.131.3 made those clients kill their own update
+      # installer, so an ordinary release run would have re-bricked 26+ users
+      # recoverable only by hand. Artifacts and the downloads page are published
+      # either way — new installs always get the fix.
+      # See backend/docs/release-ops/windows-autoupdate-job-object-incident-2026-08-06.md
+      publish_manifest:
+        description: "Push this build at existing clients (publish the auto-update manifest)"
+        type: boolean
+        default: false
+        required: true
 
 # Only repo collaborators can run workflow_dispatch, so no extra permission
 # guards needed. If you ever add PR triggers, require approval for outside
@@ -85,7 +101,15 @@ jobs:
           if [ "${{ inputs.bump }}" = "patch" ]; then
             BUMP_FLAG="--patch"
           fi
-          node scripts/bump-release.mjs $BUMP_FLAG --no-password
+          # Withhold by default; only an explicit tick publishes the manifest.
+          MANIFEST_FLAG="--no-manifest"
+          if [ "${{ inputs.publish_manifest }}" = "true" ]; then
+            MANIFEST_FLAG=""
+            echo "::warning::Auto-update manifest WILL be published — every installed client updates to this build."
+          else
+            echo "::notice::Auto-update manifest withheld (--no-manifest). Artifacts and the downloads page still ship."
+          fi
+          node scripts/bump-release.mjs $BUMP_FLAG --no-password $MANIFEST_FLAG
 
       - name: Commit and push version bump to GitLab
         if: success()
