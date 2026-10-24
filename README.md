@@ -55,7 +55,15 @@ Add these in GitHub → Settings → Secrets and variables → Actions:
 | `GITLAB_DEPLOY_TOKEN_PASSWORD` | Same deploy token, token value | Same |
 | `TAURI_SIGNING_PRIVATE_KEY` | Sign updater artifacts (minisign) | Existing key from monorepo — keep identical, DO NOT regenerate (would break auto-update for existing users) |
 | `TAURI_SIGNING_PRIVATE_KEY_PASSWORD` | Passphrase for the key | Existing |
-| `UPDATE_SECRET` | Bearer token for backend POST `/api/update/windows` | Railway backend env |
+| `TAURI_SIGNING_PRIVATE_KEY_WEST` | Sign updater artifacts of the **west** build (`flavor: west`) — its own key pair, pubkey in `src-tauri/tauri.west.conf.json` | Owner's password manager (generated 2026-10-24, key id `3EA2495B90742A8E`). Same key in `macos-ci`. Never the Russian key: `release.mjs` checks the key id against the pubkey and stops |
+| `TAURI_SIGNING_PRIVATE_KEY_PASSWORD_WEST` | Passphrase for the west key | Same |
+| `UPDATE_SECRET` | Bearer token for backend POST `/api/update/windows` (and `/windows-west`) | Backend env |
+
+## Flavors (W2)
+
+`flavor: ru` is the release as it always ran: bump, build, publish, push the bump commit.
+
+`flavor: west` re-builds the last Russian release (`chore: release <version>` on GitLab `main`) as the west build — own update channel `/api/update/windows-west`, own key, package `smoozy-windows-west`, downloads record `?market=west`. No bump, no push; `bump` is ignored. Run it after the Russian release of the same version; `publish_manifest` works the same way for it.
 
 ## Branch protection
 

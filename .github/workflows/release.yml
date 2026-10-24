@@ -29,6 +29,28 @@ on:
         type: boolean
         default: false
         required: true
+      # Which build to ship (W2, epic west-market-product). `ru` is the release
+      # as it has always run. `west` re-builds the LAST Russian release commit
+      # (`chore: release <version>` on main) as the west build: own update
+      # channel, own updater key (TAURI_SIGNING_PRIVATE_KEY_WEST /
+      # TAURI_SIGNING_PRIVATE_KEY_PASSWORD_WEST secrets), own GitLab package and
+      # downloads record — see source/scripts/release-flavors.mjs. It never bumps
+      # the version and never pushes; `bump` is ignored for it. Run it after the
+      # Russian release of the same version.
+      flavor:
+        description: "Build flavor: ru (bump + release) or west (re-build the last ru release as the west build)"
+        type: choice
+        options:
+          - ru
+          - west
+        default: ru
+        required: true
+
+# Releases run one at a time: two runs on the same version would race on the
+# version bump, the GitLab package and the update manifest.
+concurrency:
+  group: release-windows
+  cancel-in-progress: false
 
 # Only repo collaborators can run workflow_dispatch, so no extra permission
 # guards needed. If you ever add PR triggers, require approval for outside
@@ -36,7 +58,7 @@ on:
 
 jobs:
   release-windows:
-    name: "Release Windows (${{ inputs.bump }})"
+    name: "Release Windows (${{ inputs.flavor }}, ${{ inputs.bump }})"
     runs-on: windows-latest
     timeout-minutes: 45
     env:
@@ -62,6 +84,29 @@ jobs:
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
           echo "Cloned $(git rev-parse --short HEAD) from GitLab"
+
+      # The west build is the Russian release of the current version, re-built:
+      # same commit, so both channels ship the same code under the same number.
+      - name: Check out the last release commit (west)
+        if: inputs.flavor == 'west'
+        working-directory: source
+        shell: bash
+        run: |
+          VERSION=$(node -p "require('./src-tauri/tauri.conf.json').version")
+          SHA=$(git log --format='%H%x09%s' | awk -F'\t' -v s="chore: release $VERSION" '$2 == s { print $1; exit }')
+          if [ -z "$SHA" ]; then
+            echo "::error::No 'chore: release $VERSION' commit on main — run the ru release first"
+            exit 1
+          fi
+          git checkout --detach "$SHA"
+          # A release cut before W2 has a release.mjs that silently ignores
+          # --flavor: it would do a RUSSIAN release (Russian package, manifest and
+          # downloads record) signed with the west key. Refuse it outright.
+          if [ ! -f scripts/release-flavors.mjs ] || ! grep -q "release-flavors.mjs" scripts/release.mjs; then
+            echo "::error::Release $VERSION predates the west build (no scripts/release-flavors.mjs) — cut a ru release with W2 first"
+            exit 1
+          fi
+          echo "::notice::West build of $VERSION from $(git rev-parse --short HEAD)"
 
       - name: Install Rust
         uses: dtolnay/rust-toolchain@stable
@@ -94,6 +139,7 @@ jobs:
         run: pnpm install --frozen-lockfile
 
       - name: Build & release
+        if: inputs.flavor == 'ru'
         working-directory: source
         shell: bash
         run: |
@@ -111,8 +157,28 @@ jobs:
           fi
           node scripts/bump-release.mjs $BUMP_FLAG --no-password $MANIFEST_FLAG
 
+      # No --no-password here, ever: it would sign with the Russian key baked into
+      # release.mjs (the script refuses it for west anyway). A missing secret
+      # stops the run in preflight, before anything is built or uploaded.
+      - name: Build & release (west)
+        if: inputs.flavor == 'west'
+        working-directory: source
+        shell: bash
+        env:
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_WEST }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD_WEST }}
+        run: |
+          MANIFEST_FLAG="--no-manifest"
+          if [ "${{ inputs.publish_manifest }}" = "true" ]; then
+            MANIFEST_FLAG=""
+            echo "::warning::West auto-update manifest WILL be published — every installed west client updates to this build."
+          else
+            echo "::notice::West auto-update manifest withheld (--no-manifest). Artifacts and the west downloads record still ship."
+          fi
+          node scripts/release.mjs --flavor west $MANIFEST_FLAG
+
       - name: Commit and push version bump to GitLab
-        if: success()
+        if: success() && inputs.flavor == 'ru'
         working-directory: source
         shell: bash
         run: |
@@ -143,7 +209,7 @@ jobs:
         uses: actions/upload-artifact@v4
         if: always()
         with:
-          name: smoozy-windows-${{ inputs.bump }}
+          name: smoozy-windows-${{ inputs.flavor }}-${{ inputs.bump }}
           path: |
             source/src-tauri/target/release/bundle/nsis/*.exe
             source/src-tauri/target/release/bundle/nsis/*.exe.sig
